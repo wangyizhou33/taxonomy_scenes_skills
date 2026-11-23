@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#111111" />
+  <meta name="description" content="Offline explorer for a four-layer human physical work taxonomy designed for embodied AI egocentric data curation." />
+  <title>Physical Work Atlas · Embodied AI Taxonomy</title>
+  <script>
+    try {
+      if (localStorage.getItem('physical-work-atlas-theme') === 'bright') document.documentElement.dataset.theme = 'bright';
+    } catch { /* Use the default theme when browser storage is unavailable. */ }
+  </script>
+  <link rel="stylesheet" href="style.css" />
+  <script src="taxonomy-data.js" defer></script>
+  <script src="particles.js" defer></script>
+  <script src="coverage.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell" id="app">
+    <aside class="sidebar" id="sidebar" aria-label="Taxonomy navigation" data-zh-aria-label="分类导航">
+      <div class="brand">
+        <div class="brand-symbol" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <div><div class="brand-title" data-zh="人类体力活动图谱">Physical Work Atlas</div><div class="brand-subtitle" data-zh="数据采集与策展">DATA CURATION STUDIO</div></div>
+      </div>
+      <div class="sidebar-section">
+        <button type="button" class="overview-link" id="overview-btn"><span class="overview-icon" aria-hidden="true">▦</span><span data-zh="全部领域">All domains</span></button>
+        <div class="section-heading"><span data-zh="领域索引">DOMAIN INDEX</span><span class="section-count" id="domain-count">20</span></div>
+        <nav id="domain-list" class="domain-list" aria-label="Select a societal work domain" data-zh-aria-label="选择领域"></nav>
+      </div>
+      <div class="sidebar-bottom">
+        <div class="version-tag"><span class="live-dot"></span><span data-zh="本地工作区">Local workspace</span></div>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <div class="topbar-leading">
+          <button type="button" id="mobile-menu" class="icon-btn mobile-menu" aria-label="Open navigation" data-zh-aria-label="打开导航" aria-controls="sidebar" aria-expanded="false">☰</button>
+          <h1 data-zh="分类工作台">Taxonomy Studio</h1>
+        </div>
+        <div class="topbar-actions">
+          <div class="layout-toggle header-switch" role="group" aria-label="Language / 语言">
+            <button id="language-zh" type="button" aria-label="中文" title="中文" lang="zh-CN" aria-pressed="false">中</button>
+            <button id="language-en" type="button" aria-label="English" title="English" aria-pressed="true"><span aria-hidden="true" lang="zh-CN">英</span></button>
+          </div>
+          <div class="layout-toggle header-switch" role="group" aria-label="Appearance" data-zh-aria-label="外观主题">
+            <button id="theme-bright" type="button" aria-label="Bright theme" data-zh-aria-label="浅色主题" title="Bright theme" data-zh-title="浅色主题" aria-pressed="false"><span aria-hidden="true">☀</span></button>
+            <button id="theme-dark" type="button" aria-label="Dark theme" data-zh-aria-label="深色主题" title="Dark theme" data-zh-title="深色主题" aria-pressed="true"><span aria-hidden="true">☾</span></button>
+          </div>
+          <div class="search-wrap" id="search-wrap">
+            <span class="search-icon" aria-hidden="true">⌕</span>
+            <input type="search" id="global-search" placeholder="Search tasks, scenes, workflows…" data-zh-placeholder="搜索任务、场景、流程…" aria-label="Search taxonomy" data-zh-aria-label="搜索分类" autocomplete="off" />
+            <kbd class="search-shortcut">/</kbd>
+            <div id="search-popover" class="search-popover hidden" role="region" aria-label="Search results" data-zh-aria-label="搜索结果"></div>
+          </div>
+          <button type="button" class="action-btn secondary" id="reset-btn" title="Restore the default seed taxonomy" data-zh-title="恢复初始分类体系" data-zh="重置">Reset</button>
+          <button type="button" class="action-btn secondary" id="import-btn" title="Import a taxonomy JSON file" data-zh-title="导入分类 JSON 文件" data-zh="导入">Import</button>
+          <button type="button" class="action-btn primary" id="export-btn" data-zh="导出 JSON">Export JSON</button>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <div class="mode-row">
+          <div class="mode-tabs" role="tablist" aria-label="Taxonomy view" data-zh-aria-label="分类视图">
+            <button class="mode-tab active" id="tab-explore" role="tab" aria-controls="explore-view" aria-selected="true"><span aria-hidden="true">▤</span><span data-zh="分类浏览">Taxonomy explorer</span></button>
+            <button class="mode-tab" id="tab-skills" role="tab" aria-controls="skills-view" aria-selected="false"><span aria-hidden="true">✧</span><span data-zh="技能本体">Skill ontology</span></button>
+            <button class="mode-tab" id="tab-coverage" role="tab" aria-controls="coverage-view" aria-selected="false"><span aria-hidden="true">▥</span><span data-zh="覆盖分析">Coverage</span></button>
+          </div>
+        </div>
+
+        <section id="explore-view" role="tabpanel" aria-labelledby="tab-explore">
+          <div id="overview-view" class="hidden"></div>
+          <div id="domain-view">
+            <div class="domain-hero" id="domain-hero"></div>
+            <div class="metric-strip" id="metric-strip"></div>
+            <div class="content-grid">
+              <section class="tree-panel" aria-labelledby="navigator-title">
+                <div class="panel-title-row">
+                  <div><h2 id="navigator-title">Workflow map</h2><p id="navigator-description">Choose a scene or workflow to update the task list.</p></div>
+                  <div class="layout-toggle" aria-label="Navigator layout" data-zh-aria-label="导航布局">
+                    <button type="button" id="layout-map" aria-pressed="true" data-zh="流程图">Map</button>
+                    <button type="button" id="layout-tree" aria-pressed="false" data-zh="树状图">Tree</button>
+                  </div>
+                </div>
+                <div id="workflow-map"></div>
+                <div id="tree-view" class="hidden">
+                  <div class="tree-controls"><button class="text-btn" id="expand-all" data-zh="全部展开">Expand all</button><button class="text-btn" id="collapse-all" data-zh="全部收起">Collapse all</button></div>
+                  <div id="taxonomy-tree" class="taxonomy-tree"></div>
+                </div>
+              </section>
+              <aside class="details-panel" id="details-panel" aria-label="Selected taxonomy node details" data-zh-aria-label="所选分类节点详情"></aside>
+            </div>
+          </div>
+        </section>
+
+        <section id="skills-view" class="hidden" role="tabpanel" aria-labelledby="tab-skills">
+          <div class="skills-heading"><div><h2 data-zh="体力技能本体">Physical skill ontology</h2><p data-zh="内置任务已预关联可迁移技能。可在任务详情中调整标签。">Starter tasks come with suggested skill tags. Open a task to adjust its tags.</p></div></div>
+          <div class="skills-layout"><div id="skill-family-list" class="skill-family-list"></div><div id="skill-task-list" class="skill-task-list"></div></div>
+        </section>
+        <section id="coverage-view" class="hidden" role="tabpanel" aria-labelledby="tab-coverage">
+          <div class="skills-heading"><div><h2 data-zh="采集覆盖分析">Collection coverage</h2><p data-zh="按四个层级查看真实采集数据在理想分类体系中的分布。">Compare the volume of collected data with the ideal taxonomy across four layers.</p></div></div>
+          <div id="coverage-report"></div>
+          <details class="coverage-panel planning-panel">
+            <summary data-zh="任务采集计划">Task planning</summary>
+            <div id="coverage-summary" class="metric-strip"></div>
+            <div class="panel-title-row">
+              <p id="coverage-subtitle"></p>
+              <label class="coverage-filter"><span data-zh="状态">Status</span> <select id="coverage-filter"></select></label>
+            </div>
+            <div id="coverage-chart"></div>
+          </details>
+        </section>
+      </main>
+      <footer class="app-footer"><span data-zh="人类体力活动图谱">Physical Work Atlas</span><span data-zh="编辑保存在当前浏览器">Edits are saved in this browser</span></footer>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="editor-backdrop" role="presentation">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editor-title">
+      <div class="modal-header"><div><div class="mini-eyebrow" data-zh="分类编辑器">TAXONOMY EDITOR</div><h2 id="editor-title">Add a taxonomy node</h2></div><button class="icon-btn" id="close-editor" aria-label="Close dialog" data-zh-aria-label="关闭对话框">✕</button></div>
+      <form id="node-form">
+        <div class="field"><label for="node-level" data-zh="节点类型">Node type</label><input id="node-level" readonly /></div>
+        <div class="field"><label for="node-label"><span data-zh="中文名称">Name / 中文名称</span> <span class="required">*</span></label><input id="node-label" required maxlength="140" placeholder="Enter node label" data-zh-placeholder="输入节点名称" /></div>
+        <div class="field"><label for="node-en"><span data-zh="英文名称">English label</span> <span class="optional" data-zh="选填">optional</span></label><input id="node-en" maxlength="140" placeholder="Optional translation" data-zh-placeholder="选填英文翻译" /></div>
+        <div class="field"><label for="node-description"><span data-zh="描述">Description</span> <span class="optional" data-zh="选填">optional</span></label><textarea id="node-description" rows="3" maxlength="1200" placeholder="Definition, intent, inclusion/exclusion criteria…" data-zh-placeholder="定义、目的、纳入和排除标准…"></textarea></div>
+        <div class="modal-actions"><button type="button" class="action-btn secondary" id="cancel-editor" data-zh="取消">Cancel</button><button type="submit" class="action-btn primary" id="save-editor" data-zh="保存节点">Save node</button></div>
+      </form>
+    </div>
+  </div>
+  <input type="file" id="import-file" class="visually-hidden" accept=".json,application/json" />
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <div class="mobile-overlay hidden" id="mobile-overlay"></div>
+</body>
+</html>
