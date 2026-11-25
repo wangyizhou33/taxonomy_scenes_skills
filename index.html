@@ -29,6 +29,10 @@
       <div class="sidebar-section">
         <button type="button" class="overview-link" id="overview-btn"><span class="overview-icon" aria-hidden="true">▦</span><span data-zh="全部领域">All domains</span></button>
         <div class="section-heading"><span data-zh="领域索引">DOMAIN INDEX</span><span class="section-count" id="domain-count">20</span></div>
+        <div id="capacity-filter-controls" class="layout-toggle sidebar-filter" role="group" aria-label="Capacity filter" data-zh-aria-label="产能筛选">
+          <button type="button" id="capacity-filter-all" data-action="capacity-filter" data-id="all" aria-pressed="true" data-zh="显示全部">Show all</button>
+          <button type="button" id="capacity-filter-existing" data-action="capacity-filter" data-id="existing" aria-pressed="false" data-zh="显示已有产能">Show existing capacity</button>
+        </div>
         <nav id="domain-list" class="domain-list" aria-label="Select a societal work domain" data-zh-aria-label="选择领域"></nav>
       </div>
       <div class="sidebar-bottom">
@@ -70,12 +74,6 @@
 
       <main class="main-content">
         <section id="explore-view" role="tabpanel" aria-labelledby="tab-explore">
-          <div class="explorer-controls">
-            <div id="capacity-filter-controls" class="layout-toggle explorer-filter" role="group" aria-label="Capacity filter" data-zh-aria-label="产能筛选">
-              <button type="button" id="capacity-filter-all" data-action="capacity-filter" data-id="all" aria-pressed="true" data-zh="显示全部">Show all</button>
-              <button type="button" id="capacity-filter-existing" data-action="capacity-filter" data-id="existing" aria-pressed="false" data-zh="显示已有产能">Show existing capacity</button>
-            </div>
-          </div>
           <div id="overview-view" class="hidden">
             <div class="overview-head"><h2 id="overview-title"></h2></div>
             <div id="radial-overview"></div>

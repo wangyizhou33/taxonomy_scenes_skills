@@ -9,6 +9,7 @@
   const domainRadius = 195;
   const sceneRadius = 282;
   const photoRadius = 421;
+  const previewRadius = 45;
   const clipId = 'atlas-radial-photo-clip';
   const point = (radius, angle) => ({
     x: +(center + radius * Math.cos(angle)).toFixed(2),
@@ -101,16 +102,15 @@
       const font = Math.min(12, Math.max(5.5, spacing * .8));
       const label = nameOfPhoto(record);
       const shortLabel = clippedLabel(label, 115, font) || String(record.row);
-      const href = `assets/capacity/${file}`;
-      return `<a class="radial-photo" href="${safe(href)}" target="_blank" rel="noopener" data-radial-photo="${index}" aria-label="${safe(label)}">
+      return `<g class="radial-photo" role="button" tabindex="0" aria-haspopup="dialog" data-radial-photo="${index}" aria-label="${safe(label)}">
         <title>${safe(label)}</title>
         <circle class="radial-photo-hit" cx="${x}" cy="${y}" r="${radius + 1}"/>
-        <image class="radial-thumbnail" href="${safe(`assets/capacity/thumbs/${file}`)}" x="${x - radius}" y="${y - radius}"
+        <image id="radial-thumbnail-${index}" class="radial-thumbnail" href="${safe(`assets/capacity/thumbs/${file}`)}" x="${x - radius}" y="${y - radius}"
           width="${radius * 2}" height="${radius * 2}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${clipId})"/>
         <circle class="radial-photo-outline" cx="${x}" cy="${y}" r="${radius}" style="--sector-color:${safe(color)}"/>
         <text class="radial-record-label" x="${labelPoint.x}" y="${labelPoint.y}" font-size="${font}" dominant-baseline="central"
           transform="rotate(${direction} ${labelPoint.x} ${labelPoint.y})" text-anchor="${left ? 'end' : 'start'}">${safe(shortLabel)}</text>
-      </a>`;
+      </g>`;
     }
 
     function render() {
@@ -184,11 +184,19 @@
             </g>
             <g id="radial-photo-preview" class="radial-photo-preview" visibility="hidden" aria-hidden="true">
               <circle r="48" class="radial-preview-shadow"/>
-              <image x="-45" y="-45" width="90" height="90" preserveAspectRatio="xMidYMid slice" clip-path="url(#${clipId})"/>
+              <use/>
               <circle r="46" class="radial-photo-outline"/>
             </g>
           </svg>
-        </div><div class="radial-sector-tooltip" aria-hidden="true" hidden></div>` : `<p class="skill-empty">${tr('No domains match the current filter.', '当前筛选下暂无领域。')}</p>`}`;
+        </div>
+        <div class="radial-sector-tooltip" aria-hidden="true" hidden></div>
+        <dialog class="modal radial-photo-dialog" aria-labelledby="radial-photo-title">
+          <div class="modal-header">
+            <h2 id="radial-photo-title"></h2>
+            <button type="button" class="icon-btn" data-radial-photo-close autofocus aria-label="${tr('Close photo', '关闭图片')}">✕</button>
+          </div>
+          <img alt="">
+        </dialog>` : `<p class="skill-empty">${tr('No domains match the current filter.', '当前筛选下暂无领域。')}</p>`}`;
       const nextViewport = root.querySelector('.radial-viewport');
       if (nextViewport) nextViewport.scrollLeft = oldScroll ?? (nextViewport.scrollWidth - nextViewport.clientWidth) / 2;
     }
@@ -222,9 +230,25 @@
       preview.setAttribute('visibility', photo ? 'visible' : 'hidden');
       if (photo) {
         preview.setAttribute('transform', `translate(${photo.x} ${photo.y})`);
-        preview.querySelector('image').setAttribute('href', `assets/capacity/${photo.file}`);
+        // Reuse the rendered thumbnail so opening the preview does not fetch an image.
+        const thumbnail = preview.querySelector('use');
+        thumbnail.setAttribute('href', `#radial-thumbnail-${target.dataset.radialPhoto}`);
+        thumbnail.setAttribute('transform', `scale(${previewRadius / photo.radius}) translate(${-photo.x} ${-photo.y})`);
       }
       root.querySelector('#radial-hint').textContent = photo ? nameOfPhoto(photo.record) : interactionHint();
+    }
+
+    function openPhoto(trigger) {
+      const photo = photos[Number(trigger.dataset.radialPhoto)];
+      const dialog = root.querySelector('.radial-photo-dialog');
+      const label = nameOfPhoto(photo.record);
+      dialog.querySelector('h2').textContent = label;
+      const image = dialog.querySelector('img');
+      image.alt = label;
+      image.src = `assets/capacity/${photo.file}`;
+      trigger.focus({ preventScroll: true });
+      dialog.showModal();
+      showPhoto(null);
     }
 
     function activateSector(control) {
@@ -244,14 +268,33 @@
 
     const sectors = '[data-radial-domain], [data-radial-scene], [data-radial-reset]';
     root.addEventListener('click', event => {
+      if (event.target.closest('[data-radial-photo-close]')) {
+        event.target.closest('dialog').close();
+        return;
+      }
+      const photo = event.target.closest('[data-radial-photo]');
+      if (photo) {
+        openPhoto(photo);
+        return;
+      }
       const control = event.target.closest(sectors);
       if (!control) return;
       activateSector(control);
       render();
     });
     root.addEventListener('keydown', event => {
+      if (event.target.closest('.radial-photo-dialog')) {
+        event.stopPropagation();
+        return;
+      }
       if (event.key === 'Escape') showSectorLabel(null);
       if (event.key !== 'Enter' && event.key !== ' ') return;
+      const photo = event.target.closest('[data-radial-photo]');
+      if (photo) {
+        event.preventDefault();
+        openPhoto(photo);
+        return;
+      }
       const control = event.target.closest(sectors);
       if (!control) return;
       event.preventDefault();
