@@ -25,6 +25,8 @@ On the GitHub repository, choose **Settings → Pages → Source → GitHub Acti
 - `particles.js` — pointer-responsive domain illustrations with reduced-motion support
 - `taxonomy-data.js` — full editable seed dataset and physical skill families
 - `assets/domains/` — local copies of the 20 domain photographs. The image credits link to the source pages, and the photos are used under the [Pexels License](https://www.pexels.com/license/).
+- `capacity-data.js` and `assets/capacity/` — mapped capacity records and column F photos from the 场景贴图 worksheet
+- `radial-overview.js` — domain, scene, and record-photo rings in the overview
 - `coverage.js` — reported collection volumes, mappings to the seed taxonomy, and the interactive coverage chart
 - `app.js` — workflow map, tree navigation, search, editor, skill tags, coverage, JSON import/export, and browser persistence
 
@@ -43,7 +45,7 @@ The deeper levels consist of illustrative, extensible starting nodes; the taxono
 
 ## Using the interface
 
-- Select a domain on the left or open **All domains**.
+- Select a domain on the left or open **All domains**. Use **Show all** or **Show existing capacity** above the explorer to filter the domain list and scene views. Select a ring sector or choose from the overview filters to focus a domain or scene. Hover or focus a photo to enlarge it, or click it to open the original. The radial labels identify source rows and venue types.
 - Choose **中** (中文) or **英** (English) in the header. The selection is saved in this browser, and the starter taxonomy includes both labels at all four levels.
 - Use the sun or moon next to the language selector to switch between Bright and Dark. The browser remembers the selected theme.
 - In **Map**, choose a scene under **Physical scenes**. Its default workflow opens automatically, and you can select another workflow to see that workflow’s tasks. Switch to **Tree** to expand several scenes at once.
@@ -52,12 +54,16 @@ The deeper levels consist of illustrative, extensible starting nodes; the taxono
 - Click **+ Add child** to create a scene, workflow, or task.
 - Click **Edit** to rename a node, add an English translation, or provide definitions.
 - Newly created nodes can be deleted. Preinstalled nodes are edit-protected against deletion but can be renamed.
-- The 241 starter L4 tasks have editable skill tags based on their observable actions. Open a task in the inspector, then drag a skill card onto a task block or the inspector’s drop area. You can also click, tap, or use the keyboard to toggle a skill. **Skill ontology** groups tagged tasks across domains.
+- The 241 starter L4 tasks have editable skill tags based on their observable actions. Open a task in the inspector, then drag a skill card onto a task block or the inspector’s drop area. You can also click, tap, or use the keyboard to toggle a skill. **Skill taxonomy** groups tagged tasks across domains.
 - Open **Coverage** to compare **Actual volume** with **Ideal taxonomy** at L1–L4. Select a pie slice or legend row to see its details and drill down where available. The source mapping table lists the reported categories, volumes scaled by 20, and mapping decisions.
 - Set a task’s **Collection status** to Curated or Planned. The **Task planning** section under **Coverage** counts tasks by status. Tasks without a status appear as Untracked.
 - **Export JSON** saves the entire taxonomy, edits, skill annotations, and collection statuses.
 - **Import** reloads a compatible exported JSON. This replaces the current browser workspace after confirmation.
 - **Reset** restores the original taxonomy and removes local edits after confirmation.
+
+## Existing capacity
+
+Capacity records are mapped separately from the ideal taxonomy. The source worksheet contains 468 populated records. The mapping combines the collection category, venue type, and venue names from columns A–C. Where these support a more specific setting than the ideal taxonomy covers, the explorer displays a capacity scene under the existing domain. For identified scene types, the explorer shows reference workflows and observable tasks chosen for a strong fit with the setting. These examples are surfaced in both navigator views and the skill ontology. Task planning counts continue to reflect tasks with editable collection status. Entries without an available scene appear in an **Unclassified** scene under their domain. The scene record counts add up to the domain total. Unclassified scenes have no reference workflows because the scene type is unknown. The detail panel shows source row numbers, categories, venue types, and embedded photos from column F. A capacity record represents a worksheet entry. The collection-volume report and task planning retain their own measures.
 
 ## Persistence / privacy
 

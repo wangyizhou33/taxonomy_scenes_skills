@@ -33,7 +33,7 @@ jobs:
       - name: Prepare static site
         run: |
           mkdir -p _site
-          cp index.html style.css app.js taxonomy-data.js coverage.js particles.js _site/
+          cp index.html style.css app.js taxonomy-data.js capacity-data.js coverage.js particles.js radial-overview.js _site/
           cp -R assets _site/
 
       - name: Upload Pages artifact

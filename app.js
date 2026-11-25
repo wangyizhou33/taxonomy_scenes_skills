@@ -40,6 +40,47 @@
     }
   }
   indexSeed(idealTaxonomy);
+
+  const capacityWorkflows = window.ATLAS_CAPACITY_WORKFLOWS || {};
+  const capacityScenes = (window.ATLAS_CAPACITY_SCENES || []).map(scene => ({
+    ...scene,
+    type: 'scene',
+    fromCapacity: true,
+    children: (capacityWorkflows[scene.id] || []).map(([key, label, en, tasks]) => {
+      const id = `${scene.id}-W-${key}`;
+      return {
+        id, label, en, type: 'workflow', fromCapacity: true,
+        children: tasks.map(([taskKey, taskLabel, english, ...skills]) => ({
+          id: `${id}-T-${taskKey}`, label: taskLabel, en: english, type: 'task', fromCapacity: true, skills, children: []
+        }))
+      };
+    })
+  }));
+  const capacityScenesById = new Map(capacityScenes.map(scene => [scene.id, scene]));
+  const sourceCapacityByDomain = new Map();
+  for (const entry of window.ATLAS_CAPACITY) {
+    const domainId = (capacityScenesById.get(entry.nodeId) || seedIndex.get(entry.nodeId))?.id.split('-')[0];
+    if (!domainId) continue;
+    if (!sourceCapacityByDomain.has(domainId)) sourceCapacityByDomain.set(domainId, []);
+    sourceCapacityByDomain.get(domainId).push(entry);
+  }
+  const capacityByNode = new Map();
+  const addedScenesByDomain = new Map();
+  const capacityFor = node => capacityByNode.get(node) || [];
+  const capacityCount = node => capacityFor(node).length;
+  const recordCount = count => quantity(count, 'record', 'records', '条记录');
+
+  const referenceLabel = node => node.type === 'task' ? tr('Reference task', '参考任务') : tr('Reference workflow', '参考流程');
+  const isPlanningTask = node => node.type === 'task' && !node.fromCapacity;
+
+  function capacityBadge(node) {
+    const count = capacityCount(node);
+    const status = node.fromCapacity && !node.unclassified ? tr('Capacity scene', '产能新增场景') : tr('Existing capacity', '已有产能');
+    return count
+      ? `<span class="capacity-badge is-existing">${status} · ${recordCount(count)}</span>`
+      : `<span class="capacity-badge">${tr('Potential scope', '潜在范围')}</span>`;
+  }
+  const renderRadialOverview = window.createAtlasRadialOverview($('radial-overview'), tr, safe);
   const renderCoverageReport = window.createAtlasCoverage($('coverage-report'), idealTaxonomy, tr, nodeName, safe);
   let taxonomy = loadStored();
   let index = new Map();
@@ -49,6 +90,7 @@
   let mode = 'explore';
   let layout = 'map';
   let overview = false;
+  let capacityOnly = false;
   let selectedSkillId = DATA.SKILL_FAMILIES[0].id;
   let editorMode = null;
   let editorTargetId = null;
@@ -112,25 +154,75 @@
       index.set(node.id, record);
       node.children.forEach(child => visit(child,record.path,record.domainId));
     }
-    taxonomy.forEach(domain => visit(domain,[],null));
+    taxonomy.forEach(domain => visit(domain, [], null));
+    capacityByNode.clear();
+    addedScenesByDomain.clear();
+    const hasIdConflict = node => index.has(node.id) || node.children.some(hasIdConflict);
+    for (const domain of taxonomy) {
+      if (domain.custom) continue;
+      const extraScenes = capacityScenes.filter(scene => scene.domainId === domain.id && !hasIdConflict(scene));
+      for (const scene of extraScenes) visit(scene, [domain], domain.id);
+      addedScenesByDomain.set(domain, extraScenes);
+
+      const records = sourceCapacityByDomain.get(domain.id) || [];
+      capacityByNode.set(domain, records);
+      const scenes = new Map([...domain.children, ...extraScenes]
+        .filter(scene => !scene.custom && (!capacityScenesById.has(scene.id) || scene.fromCapacity))
+        .map(scene => [scene.id, scene]));
+      const unclassified = [];
+      for (const entry of records) {
+        const scene = scenes.get(entry.nodeId);
+        if (scene) {
+          if (!capacityByNode.has(scene)) capacityByNode.set(scene, []);
+          capacityByNode.get(scene).push(entry);
+        } else {
+          unclassified.push(entry);
+        }
+      }
+      if (!unclassified.length) continue;
+      // Keep every record in exactly one visible scene, including in partial imports.
+      const baseId = `${domain.id}-CAP-UNCLASSIFIED`;
+      let id = baseId;
+      let suffix = 2;
+      while (index.has(id)) id = `${baseId}-${suffix++}`;
+      const scene = {id, type: 'scene', label: '未分类', en: 'Unclassified', fromCapacity: true, unclassified: true, children: []};
+      visit(scene, [domain], domain.id);
+      extraScenes.push(scene);
+      capacityByNode.set(scene, unclassified);
+    }
   }
-  function counts(node) {
+  function browsableChildren(node) {
+    const extraScenes = addedScenesByDomain.get(node);
+    return extraScenes?.length ? [...node.children, ...extraScenes] : node.children;
+  }
+  function counts(node, include = () => true) {
     const res = {domain:0,scene:0,workflow:0,task:0};
-    function walk(n) { res[n.type]++; n.children.forEach(walk); }
+    function walk(n) {
+      if (!include(n)) return;
+      res[n.type]++;
+      browsableChildren(n).forEach(walk);
+    }
     if (node) walk(node); else taxonomy.forEach(walk);
     return res;
   }
   const getNode = id => index.get(id)?.node;
   const getDomain = () => getNode(selectedDomainId) || taxonomy[0];
 
+  const filteringCapacity = () => mode === 'explore' && capacityOnly;
+  const visibleNode = node => !filteringCapacity() || node.type === 'task' || node.type === 'workflow' || capacityCount(node) > 0;
+  const visibleScenes = domain => browsableChildren(domain).filter(visibleNode);
+  const hasCapacityAtPath = record => capacityCount(record?.path[1] || record?.node) > 0;
+
   function renderSidebar() {
-    $('domain-count').textContent = String(taxonomy.length);
+    const domains = taxonomy.filter(visibleNode);
+    $('domain-count').textContent = String(domains.length);
     $('overview-btn').classList.toggle('active',overview && mode==='explore');
-    $('domain-list').innerHTML = taxonomy.map(domain => `
+    $('domain-list').innerHTML = domains.map(domain => `
       <button type="button" class="domain-item ${!overview && mode === 'explore' && selectedDomainId === domain.id ? 'active':''}" data-action="select" data-id="${safe(domain.id)}" title="${safe(alternateName(domain) || nodeName(domain))}">
         <span class="domain-symbol" aria-hidden="true">${safe(domain.icon || '◇')}</span>
         <span class="domain-name">${safe(nodeName(domain))}</span>
-        <span class="domain-count">${domain.children.length}</span>
+        ${capacityCount(domain) ? `<span class="capacity-dot"><span class="visually-hidden">${tr('Existing capacity', '已有产能')}</span></span>` : ''}
+        <span class="domain-count">${visibleScenes(domain).length}</span>
       </button>`).join('');
   }
   function renderHero(domain) {
@@ -138,7 +230,7 @@
     if (!hero.firstElementChild) {
       hero.innerHTML = `<div id="hero-art" aria-hidden="true" class="hidden"><canvas id="hero-particles"></canvas></div>
         <div class="hero-content">
-          <div class="hero-label"><span aria-hidden="true">◇</span> <span class="hero-level"></span></div>
+          <div class="hero-badges"><div class="hero-label"><span aria-hidden="true">◇</span> <span class="hero-level"></span></div><div id="hero-capacity"></div></div>
           <h2 class="hero-title"></h2>
           <div class="hero-english"></div>
           <p class="hero-description"></p>
@@ -150,6 +242,10 @@
       $('hero-image').addEventListener('error', showHeroArt);
     }
     hero.querySelector('.hero-level').textContent = typeLabel('domain');
+    const count = capacityCount(domain);
+    $('hero-capacity').innerHTML = count
+      ? `<button class="capacity-badge is-existing capacity-link" type="button" data-action="select" data-id="${safe(domain.id)}" data-reveal-details>${tr('Existing capacity', '已有产能')} · ${recordCount(count)}</button>`
+      : capacityBadge(domain);
     hero.querySelector('.hero-title').textContent = nodeName(domain);
     hero.querySelector('.hero-english').textContent = alternateName(domain);
     hero.querySelector('.hero-description').textContent = domain.description ||
@@ -180,19 +276,22 @@
     if (!refreshHeroParticles) refreshHeroParticles = window.mountAtlasParticles($('hero-particles'));
   }
   function renderMetrics(domain) {
-    const c = counts(domain);
-    const curated = [...index.values()].filter(({ node, domainId }) => domainId === domain.id && node.type === 'task' && node.coverage === 'curated').length;
+    const c = counts(domain, visibleNode);
+    const planningTasks = [...index.values()].filter(record => record.domainId === domain.id && isPlanningTask(record.node) &&
+      (!filteringCapacity() || hasCapacityAtPath(record)));
+    const curated = planningTasks.filter(({ node }) => node.coverage === 'curated').length;
     $('metric-strip').innerHTML = [
       [typeLabel('scene'), c.scene, tr('Physical settings', '物理环境'), '◇'],
       [typeLabel('workflow'), c.workflow, tr('Work procedures', '操作流程'), '▤'],
       [typeLabel('task'), c.task, tr('Observable actions', '可观察动作'), '▦'],
-      [tr('Curated tasks', '已策展任务'), curated, tr(`of ${c.task} tasks in this domain`, `本领域共 ${c.task} 项任务`), '◉']
+      [tr('Curated tasks', '已策展任务'), curated, tr(`of ${planningTasks.length} tasks in the collection plan`, `采集计划内共 ${planningTasks.length} 项任务`), '◉']
     ].map(([label,value,sub,icon])=>`<div class="metric"><span class="metric-icon" aria-hidden="true">${icon}</span><div class="metric-label">${label}</div><div class="metric-value">${value}</div><div class="metric-sub">${sub}</div></div>`).join('');
   }
   function renderMap(domain) {
     const path = index.get(selectedId)?.path || [];
-    const scene = path[1] || domain.children.find(item => item.children.some(flow => flow.children.length)) ||
-      domain.children.find(item => item.children.length) || domain.children[0];
+    const scenes = visibleScenes(domain);
+    const scene = path[1] || scenes.find(item => item.children.some(flow => flow.children.length)) ||
+      scenes.find(item => item.children.length) || scenes[0];
     const workflow = path[2] || scene?.children.find(item => item.children.length) || scene?.children[0];
     const map = $('workflow-map');
     const oldViewport = map.querySelector('.map-viewport');
@@ -200,12 +299,14 @@
     const scrollByBranch = new Map([...map.querySelectorAll('[data-map-branch]')].map(list => [list.dataset.mapBranch, list.scrollTop]));
     const lane = (type, label, nodes, branchId, parentId, empty) => `<div class="map-lane" data-lane="${type}"><div class="lane-label">${label}</div>
       <div class="map-nodes" data-map-branch="${safe(parentId || '')}">${nodes.length ? nodes.map(node => `
-        <button type="button" class="map-node${node.id === branchId ? ' branch' : ''}${selectedId === node.id ? ' inspected' : ''}" aria-pressed="${node.id === branchId || selectedId === node.id}" data-action="select" data-id="${safe(node.id)}" ${node.type === 'task' ? `data-drop-task="${safe(node.id)}"` : `aria-expanded="${node.id === branchId}"`}>
+        <button type="button" class="map-node${node.id === branchId ? ' branch' : ''}${selectedId === node.id ? ' inspected' : ''}" aria-pressed="${node.id === branchId || selectedId === node.id}" data-action="select" data-id="${safe(node.id)}" ${isPlanningTask(node) ? `data-drop-task="${safe(node.id)}"` : node.children.length ? `aria-expanded="${node.id === branchId}"` : ''}>
           <span class="map-node-icon" aria-hidden="true">${node.type === 'scene' ? '◇' : node.type === 'workflow' ? '▤' : '▦'}</span>
           <span class="map-node-copy"><strong>${safe(nodeName(node))}</strong>
           <small>${node.type === 'task'
-            ? `<span class="map-status ${node.coverage || 'untracked'}">${coverageLabel(node.coverage || 'untracked')}</span>${node.skills.length ? ` · ${numberOfSkills(node.skills.length)}` : ''}`
-            : (node.type === 'scene' ? quantity(node.children.length, 'workflow', 'workflows', '个流程') : quantity(node.children.length, 'task', 'tasks', '项任务'))}</small></span>
+            ? `<span class="map-status ${node.coverage || 'untracked'}">${node.fromCapacity ? referenceLabel(node) : coverageLabel(node.coverage || 'untracked')}</span>${node.skills.length ? ` · ${numberOfSkills(node.skills.length)}` : ''}`
+            : (node.type === 'scene' ? quantity(node.children.length, 'workflow', 'workflows', '个流程') : quantity(node.children.length, 'task', 'tasks', '项任务'))}
+          ${node.fromCapacity && node.type === 'workflow' ? ` · ${referenceLabel(node)}` : ''}</small>
+          ${node.type === 'scene' ? capacityBadge(node) : ''}</span>
         </button>`).join('') : `<p class="map-empty">${empty}</p>`}</div></div>`;
     map.innerHTML = `<div class="map-viewport" data-domain="${safe(domain.id)}" tabindex="0" role="region" aria-labelledby="navigator-title">
       <div class="map-board"><canvas class="map-connections" aria-hidden="true"></canvas>
@@ -213,11 +314,12 @@
           <div class="map-nodes"><button type="button" class="map-node map-root${selectedId === domain.id ? ' inspected' : ''}" aria-pressed="${selectedId === domain.id}" data-action="select" data-id="${safe(domain.id)}">
             <span class="map-node-icon" aria-hidden="true">◇</span>
             <span class="map-node-copy"><strong>${tr('Physical scenes', '物理场景')}</strong>
-              <small>${quantity(domain.children.length, 'scene', 'scenes', '个场景')}</small></span>
+              <small>${quantity(scenes.length, 'scene', 'scenes', '个场景')}</small></span>
           </button></div>
         </div>
-        ${lane('scene', tr('Scene nodes', '场景节点'), domain.children, scene?.id, domain.id, tr('No scenes yet', '暂无场景'))}
-        ${lane('workflow', typeLabel('workflow'), scene?.children || [], workflow?.id, scene?.id, tr('No workflows yet', '暂无流程'))}
+        ${lane('scene', tr('Scene nodes', '场景节点'), scenes, scene?.id, domain.id, tr('No scenes yet', '暂无场景'))}
+        ${lane('workflow', typeLabel('workflow'), scene?.children || [], workflow?.id, scene?.id,
+          scene?.unclassified ? tr('Classify the scene to add workflows', '场景归类后可补充流程') : tr('No workflows yet', '暂无流程'))}
         ${lane('task', typeLabel('task'), workflow?.children || [], undefined, workflow?.id, tr('No tasks yet', '暂无任务'))}
       </div></div>`;
     map.querySelector('.map-viewport').scrollLeft = scrollLeft;
@@ -273,35 +375,94 @@
     connect(workflow, board.querySelectorAll('[data-lane="task"] .map-node'), colors.getPropertyValue('--map-link-task').trim());
   }
   function renderTree(domain) {
-    if (!domain.children.length) {
-      $('taxonomy-tree').innerHTML = `<div class="skill-empty">${tr('No scenes yet. Select the domain and choose Add child.', '暂无场景。选择领域后点击「添加子节点」。')}</div>`;
+    const scenes = visibleScenes(domain);
+    if (!scenes.length) {
+      const message = tr('No scenes yet. Select the domain and choose Add child.', '暂无场景。选择领域后点击「添加子节点」。');
+      $('taxonomy-tree').innerHTML = `<div class="skill-empty">${message}</div>`;
       return;
     }
-    $('taxonomy-tree').innerHTML = domain.children.map(scene=>{
+    $('taxonomy-tree').innerHTML = scenes.map(scene=>{
       const open = expandedScenes.has(scene.id);
       const sc = counts(scene);
       return `<div class="scene-item">
         <div class="scene-row">
-          <button class="chevron ${open?'open':''}" data-action="toggle-scene" data-id="${safe(scene.id)}" aria-label="${open ? tr('Collapse', '收起') : tr('Expand', '展开')} ${safe(nodeName(scene))}" aria-expanded="${open}">▶</button>
-          <button data-action="select" data-id="${safe(scene.id)}" class="tree-label-button ${selectedId === scene.id?'selected':''}">${safe(nodeName(scene))}</button>
-          <span class="scene-count-pill">${quantity(sc.workflow, 'flow', 'flows', '个流程')} · ${quantity(sc.task, 'task', 'tasks', '项任务')}</span>
+          ${!scene.children.length ? '<span class="chevron" aria-hidden="true">◇</span>' :
+            `<button class="chevron ${open?'open':''}" data-action="toggle-scene" data-id="${safe(scene.id)}" aria-label="${open ? tr('Collapse', '收起') : tr('Expand', '展开')} ${safe(nodeName(scene))}" aria-expanded="${open}">▶</button>`}
+          <button data-action="select" data-id="${safe(scene.id)}" class="tree-label-button ${selectedId === scene.id?'selected':''}">${safe(nodeName(scene))}${capacityBadge(scene)}</button>
+          <span class="scene-count-pill">${scene.unclassified ? tr('No workflow mapped', '暂无流程') :
+            `${quantity(sc.workflow, 'flow', 'flows', '个流程')} · ${quantity(sc.task, 'task', 'tasks', '项任务')}`}</span>
         </div>
-        ${open?`<div class="tree-children">${scene.children.map(workflow=>`
-          <div class="workflow-item"><div class="workflow-row"><span class="workflow-marker">↳</span><button class="workflow-label ${selectedId===workflow.id?'selected':''}" data-action="select" data-id="${safe(workflow.id)}">${safe(nodeName(workflow))}</button><span class="scene-count-pill">${workflow.children.length}</span></div>
-          <div class="task-list">${workflow.children.map(task=>`<button class="task-item ${selectedId===task.id?'selected':''}" data-action="select" data-id="${safe(task.id)}" data-drop-task="${safe(task.id)}"><span class="task-bullet"></span><span class="task-label">${safe(nodeName(task))}</span>${task.skills?.length?`<span class="task-skills-count">${numberOfSkills(task.skills.length)}</span>`:''}</button>`).join('')}</div>
+        ${open && scene.children.length?`<div class="tree-children">${scene.children.map(workflow=>`
+          <div class="workflow-item"><div class="workflow-row"><span class="workflow-marker">↳</span><button class="workflow-label ${selectedId===workflow.id?'selected':''}" data-action="select" data-id="${safe(workflow.id)}">${safe(nodeName(workflow))}</button><span class="scene-count-pill">${workflow.fromCapacity ? `${referenceLabel(workflow)} · ` : ''}${workflow.children.length}</span></div>
+          <div class="task-list">${workflow.children.map(task=>`<button class="task-item ${selectedId===task.id?'selected':''}" data-action="select" data-id="${safe(task.id)}" ${isPlanningTask(task) ? `data-drop-task="${safe(task.id)}"` : ''}><span class="task-bullet"></span><span class="task-label">${safe(nodeName(task))}</span>${task.fromCapacity ? `<span class="task-skills-count">${referenceLabel(task)}</span>` : ''}${task.skills?.length?`<span class="task-skills-count">${numberOfSkills(task.skills.length)}</span>`:''}</button>`).join('')}</div>
           </div>`).join('')}</div>`:''}
       </div>`;
     }).join('');
   }
+  function renderCapacityDetails(node, path) {
+    if (node.type === 'workflow' || node.type === 'task') {
+      const scene = path[1];
+      const count = capacityCount(scene);
+      return count ? `<button type="button" class="text-btn scene-capacity-link" data-action="select" data-id="${safe(scene.id)}" data-reveal-details>
+        ${tr('View capacity for this scene', '查看所在场景的产能')} · ${recordCount(count)}
+      </button>` : '';
+    }
+
+    const entries = capacityFor(node);
+    if (!entries.length) return `<section class="capacity-detail"><h4>${tr('Capacity', '产能')}</h4>${capacityBadge(node)}
+      <p>${tr('No matching records in the source sheet.', '来源表中暂无对应记录。')}</p></section>`;
+
+    const groups = node.type === 'domain'
+      ? browsableChildren(node).map(scene => [scene, capacityFor(scene)]).filter(([, records]) => records.length)
+      : [[node, entries]];
+    const photoCount = entries.reduce((count, entry) => count + entry.photos.length, 0);
+    const photoLabel = quantity(photoCount, 'photo', 'photos', '张贴图');
+
+    const image = (filename, entry) => {
+      const href = `assets/capacity/${filename}`;
+      const caption = tr(`Source photo, row ${entry.row}`, `来源表第 ${entry.row} 行贴图`);
+      return `<a class="capacity-image" href="${href}" target="_blank" rel="noopener" aria-label="${caption}">
+        <img src="${href}" alt="${caption}" loading="lazy" decoding="async">
+      </a>`;
+    };
+
+    const photos = entries.flatMap(entry => entry.photos.map(filename => ({ filename, entry })));
+    return `<section class="capacity-detail">
+      <h4>${tr('Existing capacity', '已有产能')}</h4>
+      <p>${recordCount(entries.length)} · ${photoLabel}</p>
+      ${photos.length ? `<div class="capacity-images">${photos.slice(0, 2).map(({ filename, entry }) => image(filename, entry)).join('')}</div>` : ''}
+      <details class="capacity-records">
+        <summary>${tr('View records and photos', '查看记录和贴图')}</summary>
+        <div class="capacity-record-list">
+          ${groups.map(([scene, records]) => `<section class="capacity-record-group">
+            ${node.type === 'domain' ? `<h5>${safe(nodeName(scene))} · ${recordCount(records.length)}</h5>` : ''}
+            ${records.map(entry => `<div class="capacity-record"><strong lang="zh-CN">${safe(entry.category)} · ${safe(entry.venueType)}</strong>
+              <small>${tr(`Row ${entry.row}`, `第 ${entry.row} 行`)}${entry.photos.length ? '' : tr(' · No photo', ' · 未附贴图')}</small>
+              ${entry.photos.length ? `<div class="capacity-images">${entry.photos.map(filename => image(filename, entry)).join('')}</div>` : ''}
+            </div>`).join('')}
+          </section>`).join('')}
+        </div>
+      </details>
+    </section>`;
+  }
+
   function renderDetails() {
     const record = index.get(selectedId) || index.get(selectedDomainId);
     if (!record) { $('details-panel').innerHTML = `<div class="empty-details">${tr('Select a taxonomy node to view its details.', '选择分类节点查看详情。')}</div>`; return; }
     const {node,path} = record;
-    const c = counts(node);
+    const c = counts(node, visibleNode);
     const isLeaf = node.type === 'task';
     const crumbs = path.map((n,i)=>`${i?'<span class="crumb-arrow">›</span>':''}<span class="crumb ${i===path.length-1?'current':''}">${safe(nodeName(n))}</span>`).join('');
-    const description = node.description || (!isLeaf ? defaultDescription(node) : '');
-    const skills = isLeaf ? `
+    const description = node.unclassified ? tr('Capacity records awaiting scene classification.', '尚未归入具体场景的产能记录。') :
+      node.fromCapacity ? (node.type === 'scene'
+        ? tr('This scene comes from capacity records. Its workflows and tasks are reference examples.', '此场景来自产能记录，下方流程和任务为参考示例。')
+        : tr('A reference example based on the scene type. The collection status for this example is unverified.', '根据场景类型整理的参考示例，采集状态待核实。'))
+      : node.description || (!isLeaf ? defaultDescription(node) : '');
+    const referenceSkills = isLeaf && node.fromCapacity && node.skills.length ? `
+      <h4 class="skill-heading">${tr('Suggested skills', '建议技能')}</h4>
+      <div class="detail-actions">${DATA.SKILL_FAMILIES.filter(skill => node.skills.includes(skill.id)).map(skill =>
+        `<span class="assigned-skill" style="--skill-accent:${skill.color}">${safe(skillName(skill))}</span>`).join('')}</div>` : '';
+    const skills = isPlanningTask(node) ? `
       <label class="coverage-field" for="task-coverage">${tr('Collection status', '采集状态')}
         <select id="task-coverage">${Object.keys(COVERAGE_LABELS).map(id => `<option value="${id}" ${id === (node.coverage || 'untracked') ? 'selected' : ''}>${coverageLabel(id)}</option>`).join('')}</select>
       </label>
@@ -316,19 +477,21 @@
       <p class="skill-note">${tr('Drag a card onto a task or select it to toggle the tag.', '将技能卡拖到任务上，也可点击卡片添加或移除标签。')}</p>
       <div class="skill-checklist">${DATA.SKILL_FAMILIES.map(skill => `<button type="button" class="skill-option" style="--skill-accent:${skill.color}" draggable="true" data-skill="${skill.id}" data-action="toggle-tag" data-id="${skill.id}" aria-pressed="${node.skills.includes(skill.id)}" title="${safe(skillExamples(skill))}"><span class="skill-grip" aria-hidden="true">⠿</span><span class="skill-option-label">${safe(skillName(skill))}</span><span class="skill-chip-icon" aria-hidden="true">${node.skills.includes(skill.id) ? '✓' : '+'}</span></button>`).join('')}</div>` : '';
     $('details-panel').innerHTML = `
-      <div class="detail-topline"><span class="level-pill">${typeLabel(node.type)}</span><span class="detail-id">${tr('NODE INSPECTOR', '节点详情')}</span></div>
+      <div class="detail-topline"><span class="level-pill">${typeLabel(node.type)}</span><span class="detail-id">${node.fromCapacity && node.type !== 'scene' ? referenceLabel(node) : tr('NODE INSPECTOR', '节点详情')}</span></div>
       <h3 tabindex="-1">${safe(nodeName(node))}</h3>
       ${alternateName(node) ? `<div class="detail-en">${safe(alternateName(node))}</div>` : ''}
       <div class="breadcrumb">${crumbs}</div>
       <div class="detail-divider"></div>
       ${description ? `<div class="detail-body">${safe(description)}</div>${isLeaf ? '<div class="detail-divider"></div>' : ''}` : ''}
-      ${!isLeaf?`<div class="detail-divider"></div><div class="detail-section-label">${tr('CHILD NODES', '下级节点')}</div><div class="count-tiles"><div class="count-tile"><b>${c.scene}</b><span>${tr('Scenes', '场景')}</span></div><div class="count-tile"><b>${c.workflow}</b><span>${tr('Workflows', '流程')}</span></div><div class="count-tile"><b>${c.task}</b><span>${tr('Tasks', '任务')}</span></div></div>`:''}
+      ${!isLeaf && !node.unclassified?`<div class="detail-divider"></div><div class="detail-section-label">${tr('CHILD NODES', '下级节点')}</div><div class="count-tiles"><div class="count-tile"><b>${c.scene}</b><span>${tr('Scenes', '场景')}</span></div><div class="count-tile"><b>${c.workflow}</b><span>${tr('Workflows', '流程')}</span></div><div class="count-tile"><b>${c.task}</b><span>${tr('Tasks', '任务')}</span></div></div>`:''}
+      ${renderCapacityDetails(node, path)}
       ${skills}
-      <div class="detail-actions">
+      ${referenceSkills}
+      ${node.fromCapacity ? '' : `<div class="detail-actions">
       ${!isLeaf?`<button type="button" class="action-btn primary" data-action="add-child" data-id="${safe(node.id)}">＋ ${tr('Add child', '添加子节点')}</button>`:''}
       <button type="button" class="action-btn secondary" data-action="edit" data-id="${safe(node.id)}">✎ ${tr('Edit', '编辑')}</button>
       ${node.custom?`<button type="button" class="action-btn danger" data-action="delete" data-id="${safe(node.id)}">${tr('Delete', '删除')}</button>`:''}
-      </div>`;
+      </div>`}`;
   }
   function defaultDescription(node) {
     return {
@@ -339,14 +502,29 @@
     }[node.type];
   }
   function renderOverview() {
-    const c = counts();
-    $('overview-view').innerHTML = `
-      <div class="overview-head"><h2>${tr('All domains', '全部领域')}</h2><p>${tr('Explore example tasks across the physical settings and workflows of human work.', '浏览人类体力活动的场景、流程和任务示例。')}</p></div>
+    const c = counts(undefined, visibleNode);
+    const coveredDomains = taxonomy.filter(domain => capacityCount(domain));
+    const coveredScenes = taxonomy.reduce((count, domain) => count + browsableChildren(domain).filter(capacityCount).length, 0);
+    const shown = capacityOnly ? coveredDomains : taxonomy;
+    $('overview-title').textContent = capacityOnly ? tr('Domains with existing capacity', '已有产能的领域') : tr('All domains', '全部领域');
+    $('overview-summary').innerHTML = `
+      <div class="capacity-overview">
+        <p>${tr(`Existing capacity in ${quantity(coveredDomains.length, 'domain', 'domains', '个领域')} and ${quantity(coveredScenes, 'scene', 'scenes', '个场景')}`, `已有产能覆盖 ${coveredDomains.length} 个领域、${coveredScenes} 个场景`)}</p>
+      </div>
       <div class="overview-metrics">${[
         [typeLabel('domain'), c.domain, tr('Societal work areas', '社会活动领域')], [typeLabel('scene'), c.scene, tr('Physical environments', '物理环境')],
         [typeLabel('workflow'), c.workflow, tr('Goal-directed processes', '目标导向的流程')], [typeLabel('task'), c.task, tr('Observable actions', '可观察动作')]
-      ].map(([label,value,desc])=>`<div class="metric"><div class="metric-label">${label}</div><div class="metric-value">${value}</div><div class="metric-sub">${desc}</div></div>`).join('')}</div>
-      <div class="domain-card-grid">${taxonomy.map(d=>`<button class="domain-card" data-action="select" data-id="${safe(d.id)}" style="--card-accent:${safeColor(d.color)}"><span class="domain-card-icon" aria-hidden="true">${safe(d.icon||'◇')}</span><span class="domain-card-name">${safe(nodeName(d))}</span><span class="domain-card-en">${safe(alternateName(d))}</span><span class="domain-card-footer"><span>${quantity(d.children.length, 'scene', 'scenes', '个场景')}</span></span></button>`).join('')}</div>`;
+      ].map(([label,value,desc])=>`<div class="metric"><div class="metric-label">${label}</div><div class="metric-value">${value}</div><div class="metric-sub">${desc}</div></div>`).join('')}</div>`;
+    renderRadialOverview(shown.map(domain => ({
+      id: domain.id,
+      label: nodeName(domain),
+      color: safeColor(domain.color),
+      scenes: visibleScenes(domain).map(scene => ({
+        id: scene.id,
+        label: nodeName(scene),
+        records: capacityFor(scene)
+      }))
+    })));
   }
   function renderSkillView() {
     const allTasks = [...index.values()].filter(r=>r.node.type==='task');
@@ -356,14 +534,14 @@
     const skill = DATA.SKILL_FAMILIES.find(s=>s.id===selectedSkillId) || DATA.SKILL_FAMILIES[0];
     const tasks = allTasks.filter(r=>r.node.skills.includes(skill.id));
     $('skill-task-list').innerHTML = `<div class="mini-eyebrow">${tr('RELATED TASKS', '关联任务')}</div><h3 style="margin-top:8px">${safe(skillName(skill))}</h3><div class="skill-task-intro">${safe(skillExamples(skill))}<br>${tr(`${quantity(tasks.length, 'tagged task', 'tagged tasks', '项任务')} across the taxonomy.`, `全分类共 ${tasks.length} 项任务带有此标签。`)}</div>
-       ${tasks.length?tasks.map(r=>`<button class="skill-result" data-action="select" data-id="${safe(r.node.id)}"><div class="skill-result-title">${safe(nodeName(r.node))}</div><div class="skill-result-path">${r.path.map(n=>safe(nodeName(n))).join(' / ')}</div></button>`).join(''):
-         `<div class="skill-empty">${tr('No tasks tagged in this family yet. Open a task in Taxonomy Explorer to assign skills.', '暂无任务带有此技能标签。请在分类浏览中打开任务并添加技能。')}</div>`}`;
+       ${tasks.length?tasks.map(r=>`<button class="skill-result" data-action="select" data-id="${safe(r.node.id)}"><div class="skill-result-title">${safe(nodeName(r.node))}</div><div class="skill-result-path">${r.node.fromCapacity ? `${referenceLabel(r.node)} · ` : ''}${r.path.map(n=>safe(nodeName(n))).join(' / ')}</div></button>`).join(''):
+         `<div class="skill-empty">${tr('No tasks tagged in this family yet. Open a task in Scene taxonomy to assign skills.', '暂无任务带有此技能标签。请在领域场景分类体系中打开任务并添加技能。')}</div>`}`;
   }
   function renderCoverage() {
     const byDomain = new Map(taxonomy.map(domain => [domain.id, { untracked: 0, planned: 0, curated: 0 }]));
     const totals = { untracked: 0, planned: 0, curated: 0 };
     for (const { node, domainId } of index.values()) {
-      if (node.type !== 'task') continue;
+      if (!isPlanningTask(node)) continue;
       const status = node.coverage || 'untracked';
       byDomain.get(domainId)[status]++;
       totals[status]++;
@@ -388,6 +566,21 @@
     rebuildIndex();
     if (!getNode(selectedDomainId)) selectedDomainId = taxonomy[0].id;
     if (selectedId && !index.has(selectedId)) selectedId = selectedDomainId;
+    if (filteringCapacity() && !overview && !hasCapacityAtPath(index.get(selectedId))) {
+      const domain = taxonomy.find(item => item.id === selectedDomainId && capacityCount(item)) ||
+        taxonomy.find(item => capacityCount(item));
+      if (domain) {
+        selectedDomainId = domain.id;
+        const scene = visibleScenes(domain)[0];
+        selectedId = scene?.id || domain.id;
+        if (scene) expandedScenes.add(scene.id);
+      } else {
+        overview = true;
+      }
+    }
+    $('capacity-filter-controls').classList.toggle('hidden', mode !== 'explore');
+    $('capacity-filter-all').setAttribute('aria-pressed', String(!capacityOnly));
+    $('capacity-filter-existing').setAttribute('aria-pressed', String(capacityOnly));
     renderSidebar();
     for (const view of ['explore', 'skills', 'coverage']) {
       const active = mode === view;
@@ -423,6 +616,7 @@
   function select(id, { revealDetails = true } = {}) {
     const record = index.get(id);
     if (!record) return;
+    if (capacityOnly && !hasCapacityAtPath(record)) capacityOnly = false;
     selectedId = id;
     selectedDomainId = record.domainId;
     if (record.path.length>1) expandedScenes.add(record.path[1].id);
@@ -447,6 +641,7 @@
     const q = $('global-search').value.trim().toLocaleLowerCase();
     if (!q) { hideSearch(); return; }
     const matches = [...index.values()].filter(r=>{
+      if (filteringCapacity() && !hasCapacityAtPath(r)) return false;
       const n = r.node;
       return `${n.label} ${n.en||''} ${n.description||''} ${n.id}`.toLocaleLowerCase().includes(q);
     });
@@ -459,7 +654,7 @@
   function hideSearch() { $('search-popover').classList.add('hidden'); }
   function openEditor(editorType, targetId) {
     const node = getNode(targetId);
-    if (!node || (editorType==='add' && !CHILD_TYPE[node.type])) return;
+    if (!node || node.fromCapacity || (editorType==='add' && !CHILD_TYPE[node.type])) return;
     editorMode=editorType; editorTargetId=targetId;
     const nextType = editorType==='add' ? CHILD_TYPE[node.type] : node.type;
     $('editor-title').textContent = editorType === 'add' ? tr('Add a taxonomy node', '添加分类节点') : tr('Edit taxonomy node', '编辑分类节点');
@@ -486,6 +681,7 @@
       const created = {id:uid(), type:CHILD_TYPE[target.type], label, en, description, skills:[], children:[], custom:true};
       target.children.push(created);
       selectedId = created.id;
+      if (created.type === 'scene') capacityOnly = false;
       if (target.type === 'scene') expandedScenes.add(target.id);
       if (target.type === 'workflow') {
         const path = index.get(target.id)?.path;
@@ -548,7 +744,7 @@
 
   function setSkill(taskId, skillId, allowRemoval = false) {
     const task = getNode(taskId);
-    if (task?.type !== 'task' || !skillIds.has(skillId)) return false;
+    if (!task || !isPlanningTask(task) || !skillIds.has(skillId)) return false;
     const hasSkill = task.skills.includes(skillId);
     if (hasSkill && !allowRemoval) { toast(tr('This task already has that skill.', '此任务已有该技能标签。')); return false; }
     task.skills = hasSkill ? task.skills.filter(id => id !== skillId) : [...task.skills, skillId];
@@ -637,8 +833,8 @@
     });
   }
   $('coverage-filter').addEventListener('change', renderCoverage);
-  $('expand-all').addEventListener('click',()=>{ getDomain().children.forEach(n=>expandedScenes.add(n.id));render(); });
-  $('collapse-all').addEventListener('click',()=>{ getDomain().children.forEach(n=>expandedScenes.delete(n.id));render(); });
+  $('expand-all').addEventListener('click',()=>{ visibleScenes(getDomain()).forEach(n=>expandedScenes.add(n.id));render(); });
+  $('collapse-all').addEventListener('click',()=>{ visibleScenes(getDomain()).forEach(n=>expandedScenes.delete(n.id));render(); });
   $('global-search').addEventListener('input',showSearch);
   $('global-search').addEventListener('focus',showSearch);
   $('export-btn').addEventListener('click',exportData);
@@ -670,7 +866,7 @@
     if (action==='select') {
       const fromMap = actionable.classList.contains('map-node');
       const type = getNode(id)?.type;
-      const revealDetails = type === 'task' || (!fromMap && type !== 'domain');
+      const revealDetails = actionable.dataset.revealDetails !== undefined || type === 'task' || (!fromMap && type !== 'domain');
       select(id, { revealDetails });
       if (fromMap && (!revealDetails || window.innerWidth >= 821)) {
         const next = [...$('workflow-map').querySelectorAll('.map-node')].find(button => button.dataset.id === id);
@@ -682,6 +878,11 @@
           if (outside > 0) viewport.scrollLeft += outside + 12;
         }
       }
+    }
+    else if (action === 'capacity-filter') {
+      capacityOnly = id === 'existing';
+      hideSearch();
+      render();
     }
     else if (action==='toggle-scene') { expandedScenes.has(id)?expandedScenes.delete(id):expandedScenes.add(id);render(); }
     else if (action==='select-skill') {
@@ -699,7 +900,7 @@
   $('details-panel').addEventListener('change',e=>{
     if (e.target.id !== 'task-coverage' || !Object.hasOwn(COVERAGE_LABELS, e.target.value)) return;
     const node = getNode(selectedId);
-    if (node?.type !== 'task') return;
+    if (!node || !isPlanningTask(node)) return;
     node.coverage = e.target.value;
     toast(tr('Collection status saved.', '采集状态已保存。'));
     save();

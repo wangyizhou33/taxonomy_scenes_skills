@@ -13,8 +13,10 @@
   </script>
   <link rel="stylesheet" href="style.css" />
   <script src="taxonomy-data.js" defer></script>
+  <script src="capacity-data.js" defer></script>
   <script src="particles.js" defer></script>
   <script src="coverage.js" defer></script>
+  <script src="radial-overview.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -40,6 +42,11 @@
           <button type="button" id="mobile-menu" class="icon-btn mobile-menu" aria-label="Open navigation" data-zh-aria-label="打开导航" aria-controls="sidebar" aria-expanded="false">☰</button>
           <h1 data-zh="分类工作台">Taxonomy Studio</h1>
         </div>
+        <div class="mode-tabs" role="tablist" aria-label="Taxonomy view" data-zh-aria-label="分类视图">
+          <button class="mode-tab active" id="tab-explore" role="tab" aria-controls="explore-view" aria-selected="true"><span aria-hidden="true">▤</span><span data-zh="领域场景分类体系">Scene taxonomy</span></button>
+          <button class="mode-tab" id="tab-skills" role="tab" aria-controls="skills-view" aria-selected="false"><span aria-hidden="true">✧</span><span data-zh="技能任务分类体系">Skill taxonomy</span></button>
+          <button class="mode-tab" id="tab-coverage" role="tab" aria-controls="coverage-view" aria-selected="false"><span aria-hidden="true">▥</span><span data-zh="覆盖分析">Coverage</span></button>
+        </div>
         <div class="topbar-actions">
           <div class="layout-toggle header-switch" role="group" aria-label="Language / 语言">
             <button id="language-zh" type="button" aria-label="中文" title="中文" lang="zh-CN" aria-pressed="false">中</button>
@@ -62,16 +69,18 @@
       </header>
 
       <main class="main-content">
-        <div class="mode-row">
-          <div class="mode-tabs" role="tablist" aria-label="Taxonomy view" data-zh-aria-label="分类视图">
-            <button class="mode-tab active" id="tab-explore" role="tab" aria-controls="explore-view" aria-selected="true"><span aria-hidden="true">▤</span><span data-zh="分类浏览">Taxonomy explorer</span></button>
-            <button class="mode-tab" id="tab-skills" role="tab" aria-controls="skills-view" aria-selected="false"><span aria-hidden="true">✧</span><span data-zh="技能本体">Skill ontology</span></button>
-            <button class="mode-tab" id="tab-coverage" role="tab" aria-controls="coverage-view" aria-selected="false"><span aria-hidden="true">▥</span><span data-zh="覆盖分析">Coverage</span></button>
-          </div>
-        </div>
-
         <section id="explore-view" role="tabpanel" aria-labelledby="tab-explore">
-          <div id="overview-view" class="hidden"></div>
+          <div class="explorer-controls">
+            <div id="capacity-filter-controls" class="layout-toggle explorer-filter" role="group" aria-label="Capacity filter" data-zh-aria-label="产能筛选">
+              <button type="button" id="capacity-filter-all" data-action="capacity-filter" data-id="all" aria-pressed="true" data-zh="显示全部">Show all</button>
+              <button type="button" id="capacity-filter-existing" data-action="capacity-filter" data-id="existing" aria-pressed="false" data-zh="显示已有产能">Show existing capacity</button>
+            </div>
+          </div>
+          <div id="overview-view" class="hidden">
+            <div class="overview-head"><h2 id="overview-title"></h2></div>
+            <div id="radial-overview"></div>
+            <div id="overview-summary"></div>
+          </div>
           <div id="domain-view">
             <div class="domain-hero" id="domain-hero"></div>
             <div class="metric-strip" id="metric-strip"></div>
@@ -96,7 +105,7 @@
         </section>
 
         <section id="skills-view" class="hidden" role="tabpanel" aria-labelledby="tab-skills">
-          <div class="skills-heading"><div><h2 data-zh="体力技能本体">Physical skill ontology</h2><p data-zh="内置任务已预关联可迁移技能。可在任务详情中调整标签。">Starter tasks come with suggested skill tags. Open a task to adjust its tags.</p></div></div>
+          <div class="skills-heading"><div><h2 data-zh="技能任务分类体系">Skill taxonomy</h2><p data-zh="内置任务已预关联可迁移技能。可在任务详情中调整标签。">Starter tasks come with suggested skill tags. Open a task to adjust its tags.</p></div></div>
           <div class="skills-layout"><div id="skill-family-list" class="skill-family-list"></div><div id="skill-task-list" class="skill-task-list"></div></div>
         </section>
         <section id="coverage-view" class="hidden" role="tabpanel" aria-labelledby="tab-coverage">
